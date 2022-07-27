@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "beddestroyer",
+  "version": "${version}",
+
+  "name": "Bed destroyer",
+  "description": "Addon for Meteor Client that allows breaking beds trough blocks (for Bedwars minigame).",
+  "authors": [
+    "semjon00"
+  ],
+  "contact": {
+    "sources": "https://github.com/semjon00"
+  },
+
+  "license": "GPL-3.0",
+  "icon": "assets/beddestroyer/icon.png",
+
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "semjon00.beddestroyer.MeteorBedDestroyerAddon"
+    ]
+  },
+  "mixins": [
+    "modid.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.12.12",
+    "minecraft": "~1.18.2",
+    "java": ">=17",
+    "meteor-client": ">=0.4.9"
+  },
+  "suggests": {
+  }
+}
