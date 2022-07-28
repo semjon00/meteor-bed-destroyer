@@ -21,6 +21,9 @@
       "semjon00.beddestroyer.MeteorBedDestroyerAddon"
     ]
   },
+  "mixins": [
+    "beddestroyer.mixins.json"
+  ],
   "depends": {
     "fabricloader": ">=0.12.12",
     "minecraft": "~1.18.2",
