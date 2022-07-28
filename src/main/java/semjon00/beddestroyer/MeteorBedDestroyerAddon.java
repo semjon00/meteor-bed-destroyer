@@ -1,21 +1,36 @@
 package semjon00.beddestroyer;
 
-import net.fabricmc.api.ModInitializer;
+import meteordevelopment.meteorclient.MeteorClient;
+import meteordevelopment.meteorclient.addons.MeteorAddon;
+import meteordevelopment.meteorclient.systems.modules.Category;
+import meteordevelopment.meteorclient.systems.modules.Modules;
+import net.minecraft.item.Items;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import semjon00.beddestroyer.modules.*;
+import net.fabricmc.api.ModInitializer;
 
-public class MeteorBedDestroyerAddon implements ModInitializer {
-	// This logger is used to write text to the console and the log file.
-	// It is considered best practice to use your mod id as the logger's name.
-	// That way, it's clear which mod wrote info, warnings, and errors.
+import java.lang.invoke.MethodHandles;
+
+public class MeteorBedDestroyerAddon extends MeteorAddon {
 	public static final Logger LOGGER = LoggerFactory.getLogger("beddestroyer");
+	public static final Category CATEGORY = new Category("BedWars", Items.RED_BED.getDefaultStack());
 
 	@Override
 	public void onInitialize() {
-		// This code runs as soon as Minecraft is in a mod-load-ready state.
-		// However, some things (like resources) may still be uninitialized.
-		// Proceed with mild caution.
-
 		LOGGER.info("Bed destroyer is enabled! Make these pesky cheaters pay!");
+
+		// No idea what this does. Some trickery to capture events with our code?
+		MeteorClient.EVENT_BUS.registerLambdaFactory("semjon00.beddestroyer",
+				(lookupInMethod, klass) -> (MethodHandles.Lookup) lookupInMethod.invoke(
+						null, klass, MethodHandles.lookup()));
+
+		Modules modules = Modules.get();
+		modules.add(new BedDestroyer());
+	}
+
+	@Override
+	public void onRegisterCategories() {
+		Modules.registerCategory(CATEGORY);
 	}
 }
