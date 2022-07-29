@@ -1,20 +1,12 @@
-package semjon00.beddestroyer.mixin;
+package semjon00.meteorbeddestroyer.mixin;
 
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import net.minecraft.client.network.ClientPlayerInteractionManager;
-import net.minecraft.network.packet.c2s.play.PlayerActionC2SPacket;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-import semjon00.beddestroyer.MeteorBedDestroyerAddon;
-import semjon00.beddestroyer.modules.BedDestroyer;
-
-import java.text.MessageFormat;
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import semjon00.meteorbeddestroyer.modules.BedDestroyer;
 
 @Mixin(ClientPlayerInteractionManager.class)
 public class ClientPlayerInteractionManagerMixin {

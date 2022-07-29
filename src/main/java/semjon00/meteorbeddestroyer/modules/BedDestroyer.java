@@ -1,4 +1,4 @@
-package semjon00.beddestroyer.modules;
+package semjon00.meteorbeddestroyer.modules;
 
 // TODO: better positions (skill = 100%)
 // TODO: fix situations where trough blocks is enabled
@@ -27,7 +27,7 @@ import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.RaycastContext;
 import oshi.util.tuples.Triplet;
-import semjon00.beddestroyer.MeteorBedDestroyerAddon;
+import semjon00.meteorbeddestroyer.MeteorBedDestroyerAddon;
 import static net.minecraft.block.Blocks.YELLOW_WOOL;
 
 public class BedDestroyer extends Module {
