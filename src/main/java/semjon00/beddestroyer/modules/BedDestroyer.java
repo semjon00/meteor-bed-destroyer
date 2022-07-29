@@ -1,11 +1,11 @@
 package semjon00.beddestroyer.modules;
 
-// TODO: fix breakBlockPrima reporting wrong block direction on block events
 // TODO: better positions (skill = 100%)
 // TODO: fix situations where trough blocks is enabled
 // TODO: fix situations where trough entities is disabled
-// TODO: always the closest angle point, even it is not for the closest target
-// TODO: integrate with Blink (that would seriously be OP)
+// TODO: always choose the closest angle point, even it is not for the closest target
+// TODO: integrate with Blink (that would seriously be OP) - Modules.get().get(Blink.class).isActive()
+// TODO: An option to disallow running while breaking (confuses the server)
 // TODO: move breakBlockPrima inside the onTickPre to possibly gain an extra tick of time
 
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
@@ -19,6 +19,8 @@ import meteordevelopment.meteorclient.utils.world.BlockUtils;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.block.BedBlock;
 import net.minecraft.block.BlockState;
+import net.minecraft.network.packet.c2s.play.HandSwingC2SPacket;
+import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
@@ -27,7 +29,6 @@ import net.minecraft.world.RaycastContext;
 import oshi.util.tuples.Triplet;
 import semjon00.beddestroyer.MeteorBedDestroyerAddon;
 import static net.minecraft.block.Blocks.YELLOW_WOOL;
-import static semjon00.beddestroyer.MeteorBedDestroyerAddon.LOGGER;
 
 public class BedDestroyer extends Module {
     private final SettingGroup sgGeneral = settings.createGroup("General");
@@ -77,6 +78,13 @@ public class BedDestroyer extends Module {
 //            .build()
 //    );
 
+    private final Setting<Boolean> swingClientside = sgGeneral.add(new BoolSetting.Builder()
+            .name("swing-clientside")
+            .description("Should the hand move client-side?")
+            .defaultValue(false)
+            .build()
+    );
+
     private final Setting<Boolean> breakYellowWool = sgGeneral.add(new BoolSetting.Builder()
             .name("break-yellow-wool")
             .description("Should the module break yellow wool (cuz why not)?")
@@ -97,7 +105,7 @@ public class BedDestroyer extends Module {
                 "Fine-tuned bed nuker.");
     }
 
-    private BlockPos currentTargetBlock = null;
+    public static BlockPos currentTargetBlock = null;
 
     @Override
     public void onDeactivate() {
@@ -155,7 +163,22 @@ public class BedDestroyer extends Module {
     }
 
     private void breakBlockPrima(BlockPos blockPos, Direction direction) {
-        BlockUtils.breakBlock(blockPos, false);
+        // Adopted from meteordevelopment.meteorclient.utils.world.BlockUtils
+        // With this version can set a direction, too.
+
+        BlockPos pos = blockPos instanceof BlockPos.Mutable ? new BlockPos(blockPos) : blockPos;
+
+        if (mc.interactionManager.isBreakingBlock()) {
+            mc.interactionManager.updateBlockBreakingProgress(pos, direction);
+        } else {
+            mc.interactionManager.attackBlock(pos, direction);
+        }
+
+        if (swingClientside.get()) {
+            mc.player.swingHand(Hand.MAIN_HAND);
+        } else {
+            mc.getNetworkHandler().sendPacket(new HandSwingC2SPacket(Hand.MAIN_HAND));
+        }
     }
 
     // Positions to check to know if we can reach the bed and the correct angle for it

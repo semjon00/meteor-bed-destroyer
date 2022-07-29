@@ -31,5 +31,8 @@
     "meteor-client": ">=0.4.9"
   },
   "suggests": {
+  },
+  "custom": {
+    "meteor-client:color": "237,19,19"
   }
 }
