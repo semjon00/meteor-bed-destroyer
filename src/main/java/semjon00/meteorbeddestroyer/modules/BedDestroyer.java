@@ -1,19 +1,21 @@
 package semjon00.meteorbeddestroyer.modules;
 
-// TODO: fix situations where trough blocks is enabled
-// TODO: fix situations where trough entities is disabled
+// TODO: add toggle for situations where trough blocks is desireable
+// TODO: add toggle for situations where trough entities is undesireable
 // TODO: verify that the rotation does not lag behind the position (nor vice versa)
-// TODO: integrate with Blink (that would seriously be OP) - Modules.get().get(Blink.class).isActive()
-// TODO: An option to disallow running while breaking (confuses the server)
-// TODO: force camera mode
 // TODO: move breakBlockPrima inside the onTickPre to possibly gain an extra tick of time
+// TODO: Accurate mode: update the direction at every frame (especially useful for FORCED rotation mode)
+// TODO: the breaking angle should be sticky (FORCED rotation mode improvement and performance optimization)
+// TODO: fix vanilla reach being slightly off
+// TODO: fix blink integration sometimes produces one frame with red coloring
 
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.renderer.ShapeMode;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
-import meteordevelopment.meteorclient.utils.Utils;
+import meteordevelopment.meteorclient.systems.modules.Modules;
+import meteordevelopment.meteorclient.systems.modules.movement.Blink;
 import meteordevelopment.meteorclient.utils.player.Rotations;
 import meteordevelopment.meteorclient.utils.render.color.Color;
 import meteordevelopment.meteorclient.utils.render.color.SettingColor;
@@ -32,6 +34,7 @@ import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.shape.VoxelShape;
 import net.minecraft.world.RaycastContext;
+import oshi.util.tuples.Pair;
 import oshi.util.tuples.Triplet;
 import semjon00.meteorbeddestroyer.MeteorBedDestroyerAddon;
 
@@ -42,8 +45,8 @@ public class BedDestroyer extends Module {
     private final SettingGroup sgGeneral = settings.createGroup("General");
     private final SettingGroup sgRender = settings.createGroup("Render");
 
-    private final Setting<Boolean> vanilaRange = sgGeneral.add(new BoolSetting.Builder()
-            .name("vanila-range")
+    private final Setting<Boolean> vanilaReach = sgGeneral.add(new BoolSetting.Builder()
+            .name("vanila-reach")
             .description("Whether to use vanilla reach distance.")
             .defaultValue(true)
             .build()
@@ -57,19 +60,36 @@ public class BedDestroyer extends Module {
             .max(8)
             .sliderMin(1)
             .sliderMax(8)
-            .visible(() -> !vanilaRange.get())
+            .visible(() -> !vanilaReach.get())
             .build()
     );
 
     public enum RotationMode {
         NONE,
-        FREELOOK
+        FREELOOK,
+        LOCKED
     }
 
-    private final Setting<RotationMode> rotationMode = sgGeneral.add(new EnumSetting.Builder<RotationMode>()
+    public final Setting<RotationMode> rotationMode = sgGeneral.add(new EnumSetting.Builder<RotationMode>()
             .name("rotation-mode")
             .description("How should the module fake rotation?")
             .defaultValue(RotationMode.NONE)
+            .build()
+    );
+
+    public final Setting<Boolean> restrictSprinting = sgGeneral.add(new BoolSetting.Builder()
+            .name("restrict-sprinting")
+            .description("Sprinting may not be possible in all directions. Restrict it?")
+            .defaultValue(true)
+            .visible(() -> rotationMode.get() == RotationMode.FREELOOK)
+            .build()
+    );
+
+    private final Setting<Boolean> restoreRotation = sgGeneral.add(new BoolSetting.Builder()
+            .name("restore-rotation")
+            .description("Should the previous rotation be restored after the block is broken?")
+            .defaultValue(false)
+            .visible(() -> rotationMode.get() == RotationMode.LOCKED)
             .build()
     );
 //
@@ -94,14 +114,28 @@ public class BedDestroyer extends Module {
             .build()
     );
 
-    private final Setting<SettingColor> targetColor = sgRender.add(new ColorSetting.Builder()
+    private final Setting<Boolean> blinkIntegration = sgGeneral.add(new BoolSetting.Builder()
+            .name("blink-integration")
+            .description("Should prevent the breaking while in Blink state?")
+            .defaultValue(true)
+            .build()
+    );
+
+    private final Setting<SettingColor> activeTargetColor = sgRender.add(new ColorSetting.Builder()
             .name("target-color")
             .description("Color to render the block that is being broken.")
             .defaultValue(new SettingColor(255,31,31, 127))
             .build()
     );
 
-    private final Setting<SettingColor> passiveColor = sgRender.add(new ColorSetting.Builder()
+    private final Setting<SettingColor> passiveTargetColor = sgRender.add(new ColorSetting.Builder()
+            .name("target-color")
+            .description("Color to render the block that we aim at, but do not yet break.")
+            .defaultValue(new SettingColor(245,133,31, 79))
+            .build()
+    );
+
+    private final Setting<SettingColor> candidateColor = sgRender.add(new ColorSetting.Builder()
             .name("bed-color")
             .description("Color to render all nearby bed blocks.")
             .defaultValue(new SettingColor(234, 234, 31, 31))
@@ -114,15 +148,19 @@ public class BedDestroyer extends Module {
                 "Fine-tuned bed nuker.");
     }
 
-    public static BlockPos currentTargetBlock = null;
+    public boolean isBreakingThisTick = false;
+    public BlockPos currentTargetBlock = null;
     private final List<BlockPos> candidateTargetBlocks = new ArrayList<>();
     private final List<BlockPos> possibleTargets = new ArrayList<>();
+    private Pair<Float, Float> savedYawPitch = null;
 
     @Override
     public void onDeactivate() {
+        isBreakingThisTick = false;
         currentTargetBlock = null;
         candidateTargetBlocks.clear();
         possibleTargets.clear();
+        savedYawPitch = null;
     }
 
     @EventHandler
@@ -132,20 +170,47 @@ public class BedDestroyer extends Module {
             if (!allowedTarget(mc.world.getBlockState(currentTargetBlock))) {
                 // Something (we, apparently) broke the target block! Yay!
                 currentTargetBlock = null;
+                isBreakingThisTick = false;
             }
         }
         if (currentTargetBlock != null) {
-            Triplet<Double, Double, Direction> ga = goodAngle(currentTargetBlock);
+            Triplet<Float, Float, Direction> ga = goodAngle(currentTargetBlock);
             if (ga == null) {
                 // Our target block is no longer reachable! Sad.
                 currentTargetBlock = null;
+                mc.interactionManager.cancelBlockBreaking();
             } else {
-                // The target block is still visible! Advance the breaking!
-                if (rotationMode.get() == RotationMode.FREELOOK) {
-                    Rotations.rotate(ga.getA(), ga.getB(), 10, true, () -> {});
+                // The target block is visible!
+                isBreakingThisTick = true;
+                if (blinkIntegration.get() && Modules.get().get(Blink.class).isActive()) isBreakingThisTick = false;
+                if (isBreakingThisTick) {
+                    if (rotationMode.get() == RotationMode.LOCKED) {
+                        if (savedYawPitch == null) {
+                            savedYawPitch = new Pair<>(mc.player.getYaw(), mc.player.getPitch());
+                        }
+                        // clientSide parameter sets head rotation, but not the rotation of the camera
+                        Rotations.rotate(ga.getA(), ga.getB(), 10, true, () -> {});
+                        mc.player.setYaw(ga.getA());
+                        mc.player.setPitch(ga.getB());
+                    }
+                    if (rotationMode.get() == RotationMode.FREELOOK) {
+                        if (restrictSprinting.get()) {
+                            if (mc.player.isSprinting()) {
+                                mc.player.setSprinting(false);
+                            }
+                        }
+                        Rotations.rotate(ga.getA(), ga.getB(), 10, true, () -> {});
+                    }
+                    breakBlockPrima(currentTargetBlock, ga.getC());
                 }
-                breakBlockPrima(currentTargetBlock, ga.getC());
             }
+        }
+        if (currentTargetBlock == null && savedYawPitch != null) {
+            if (restoreRotation.get()) {
+                mc.player.setYaw(savedYawPitch.getA());
+                mc.player.setPitch(savedYawPitch.getB());
+            }
+            savedYawPitch = null;
         }
 
         // Searching a target, potential targets
@@ -158,7 +223,7 @@ public class BedDestroyer extends Module {
 
             // The target is sticky - we do not want to change it if we already have one
             if (currentTargetBlock == null) {
-                Triplet<Double, Double, Direction> ga = goodAngle(blockPos);
+                Triplet<Float, Float, Direction> ga = goodAngle(blockPos);
                 if (ga != null) {
                     // New target candidate found!
                     candidateTargetBlocks.add(blockPos.toImmutable());
@@ -181,10 +246,11 @@ public class BedDestroyer extends Module {
     @EventHandler
     private void onRender(Render3DEvent event) {
         if (currentTargetBlock != null) {
-            highlightBlock(event, currentTargetBlock, targetColor.get(), false);
+            var color = isBreakingThisTick ? activeTargetColor.get() : passiveTargetColor.get();
+            highlightBlock(event, currentTargetBlock, color,false);
         }
         for (var b : possibleTargets) {
-            if (!b.equals(currentTargetBlock)) highlightBlock(event, b, passiveColor.get(), true);
+            if (!b.equals(currentTargetBlock)) highlightBlock(event, b, candidateColor.get(), true);
         }
     }
 
@@ -232,7 +298,7 @@ public class BedDestroyer extends Module {
         }
     }
 
-    // Positions to check to know if we can reach the bed and the correct angle for it
+    // Positions to check to know if we can reach the bed and to calculate the correct angle for breaking it
     // These positions should cover almost all cases where the bed is exposed
     // See net.minecraft.block.BedBlock.getOutlineShape for the bed shape
     // Range: from 0.0 to 16.0, last element is penalty
@@ -245,10 +311,10 @@ public class BedDestroyer extends Module {
     // Calculates an angle so the block can be hit.
     // If many, take the one that allows for the shortest distance
     // Returns: yaw, pitch, face that will be hit
-    public Triplet<Double, Double, Direction> goodAngle(BlockPos pos) {
+    public Triplet<Float, Float, Direction> goodAngle(BlockPos pos) {
         if (pos == null) return null;
 
-        Triplet<Double, Double, Direction> ans = null;
+        Triplet<Float, Float, Direction> ans = null;
         double bestScore = Double.MAX_VALUE;
         for (var dp : deltaPositionsToCheck) {
             Vec3d aimAt = new Vec3d(
@@ -271,8 +337,8 @@ public class BedDestroyer extends Module {
                 bestScore = hitScore;
 
                 // Let's calculate the direction for the camera
-                double yaw = Math.atan2(- aimVector.x, aimVector.z) * 180.0 / Math.PI;
-                double pitch = Math.asin(- aimVector.y) * 180.0 / Math.PI;
+                float yaw = (float) (Math.atan2(- aimVector.x, aimVector.z) * 180.0 / Math.PI);
+                float pitch = (float) (Math.asin(- aimVector.y) * 180.0 / Math.PI);
 
                 ans = new Triplet<>(yaw, pitch, hit.getSide());
             }
@@ -289,11 +355,11 @@ public class BedDestroyer extends Module {
     }
 
     public Vec3d cameraPosition() {
-        // Some magic, no idea why tick delta needed here
+        // Some magic, no idea why tick delta is needed here
         return mc.player.getCameraPosVec(1f / 20f);
     }
 
     public double getRange() {
-        return vanilaRange.get() ? mc.interactionManager.getReachDistance() : range.get();
+        return vanilaReach.get() ? mc.interactionManager.getReachDistance() : range.get();
     }
 }

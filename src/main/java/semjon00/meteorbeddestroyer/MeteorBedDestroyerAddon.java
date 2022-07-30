@@ -12,7 +12,7 @@ import semjon00.meteorbeddestroyer.modules.*;
 import java.lang.invoke.MethodHandles;
 
 public class MeteorBedDestroyerAddon extends MeteorAddon {
-	public static final Logger LOGGER = LoggerFactory.getLogger("meteorbeddestroyer");
+	public static final Logger LOGGER = LoggerFactory.getLogger("Meteor Bed Destroyer");
 	public static final Category CATEGORY = new Category("BedWars", Items.RED_BED.getDefaultStack());
 
 	@Override

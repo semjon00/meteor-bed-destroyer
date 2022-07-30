@@ -24,10 +24,11 @@ public class ClientPlayerInteractionManagerMixin {
 //	}
 
 	// Prevents Minecraft from cancelling block breaking if we actually have a target that we punch
+	// For module: BedDestroyer
 	@Inject(method = "cancelBlockBreaking", at = @At("HEAD"), cancellable = true)
 	private void onCancelBlockBreaking(CallbackInfo info) {
 		if (Modules.get().get(BedDestroyer.class).isActive()) {
-			if (BedDestroyer.currentTargetBlock != null) {
+			if (Modules.get().get(BedDestroyer.class).currentTargetBlock != null) {
 				info.cancel();
 			}
 		}
