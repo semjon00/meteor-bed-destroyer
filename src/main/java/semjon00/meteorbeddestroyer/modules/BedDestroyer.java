@@ -4,8 +4,6 @@ package semjon00.meteorbeddestroyer.modules;
 // TODO: add toggle for situations where trough entities is undesirable
 // TODO: verify that the rotation does not lag behind the position (nor vice versa)
 // TODO: Accurate mode: update the direction at every frame (especially useful for FORCED rotation mode)
-// TODO: the breaking angle should be sticky (FORCED rotation mode improvement and performance optimization)
-// TODO: fix vanilla reach being slightly off
 // TODO: restrict punching and breaking while breaking the target
 
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
@@ -27,6 +25,7 @@ import net.minecraft.block.BlockState;
 import net.minecraft.network.packet.c2s.play.HandSwingC2SPacket;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
+import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Direction;
@@ -34,9 +33,9 @@ import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.shape.VoxelShape;
 import net.minecraft.world.RaycastContext;
 import oshi.util.tuples.Pair;
-import oshi.util.tuples.Triplet;
 import semjon00.meteorbeddestroyer.MeteorBedDestroyerAddon;
 
+import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -51,9 +50,9 @@ public class BedDestroyer extends Module {
             .build()
     );
 
-    private final Setting<Double> range = sgGeneral.add(new DoubleSetting.Builder()
-            .name("range")
-            .description("The break range.")
+    private final Setting<Double> reach = sgGeneral.add(new DoubleSetting.Builder()
+            .name("reach")
+            .description("The break reach.")
             .defaultValue(4.0)
             .min(1)
             .max(8)
@@ -91,7 +90,7 @@ public class BedDestroyer extends Module {
             .visible(() -> rotationMode.get() == RotationMode.LOCKED)
             .build()
     );
-//
+
 //    private final Setting<Boolean> troughBlocks = sgGeneral.add(new BoolSetting.Builder()
 //            .name("trough-blocks")
 //            .description("Should we break trough blocks?")
@@ -105,6 +104,13 @@ public class BedDestroyer extends Module {
 //            .defaultValue(true)
 //            .build()
 //    );
+
+    private final Setting<Boolean> targetPointSticky = sgGeneral.add(new BoolSetting.Builder()
+            .name("target-point-sticky")
+            .description("Should aim for the same point as long as possible?")
+            .defaultValue(false)
+            .build()
+    );
 
     private final Setting<Boolean> swingClientside = sgGeneral.add(new BoolSetting.Builder()
             .name("swing-clientside")
@@ -131,7 +137,7 @@ public class BedDestroyer extends Module {
             .name("suspended-target-color")
             .description("Color to render the block that we may break, but not yet.")
             .defaultValue(new SettingColor(245,133,31, 79))
-            .visible(() -> blinkIntegration.get())
+            .visible(blinkIntegration::get)
             .build()
     );
 
@@ -150,6 +156,7 @@ public class BedDestroyer extends Module {
 
     public boolean isBreakingTarget = false;
     public BlockPos currentTarget = null;
+    public Vec3d currentTargetAimDelta = null;
     private final List<BlockPos> possibleTargets = new ArrayList<>();
     private Pair<Float, Float> savedYawPitch = null;
 
@@ -157,16 +164,20 @@ public class BedDestroyer extends Module {
     public void onDeactivate() {
         isBreakingTarget = false;
         currentTarget = null;
+        currentTargetAimDelta = null;
         possibleTargets.clear();
         savedYawPitch = null;
     }
 
     @EventHandler
     private void onTickPre(TickEvent.Pre event) {
-        if (currentTarget != null && goodAngle(currentTarget) == null) {
+        if (mc.interactionManager == null || mc.player == null) return;
+
+        if (currentTarget != null && goodAimPoint(currentTarget) == null) {
             // The target no longer reachable. Either it broke or is too far away.
             isBreakingTarget = false;
             currentTarget = null;
+            currentTargetAimDelta = null;
             mc.interactionManager.cancelBlockBreaking();
             // Restoring yaw and pitch if necessary
             if (savedYawPitch != null) {
@@ -182,7 +193,7 @@ public class BedDestroyer extends Module {
         // Searching possible targets, candidate targets
         final List<BlockPos> candidateTargets = new ArrayList<>();
         possibleTargets.clear();
-        BlockIterator.register((int) Math.ceil(range.get()+1), (int) Math.ceil(range.get()+2), (blockPos, blockState) -> {
+        BlockIterator.register((int) Math.ceil(reach.get()+2), (int) Math.ceil(reach.get()+2), (blockPos, blockState) -> {
             if (!BlockUtils.canBreak(blockPos, blockState)) return;
             if (!isAllowedTarget(blockState)) return;
             possibleTargets.add(blockPos.toImmutable());
@@ -190,8 +201,7 @@ public class BedDestroyer extends Module {
             // The target is sticky - we do not want to change it if we already have one
             // We will only have candidates if we do not have the old target anymore
             if (currentTarget == null) {
-                Triplet<Float, Float, Direction> ga = goodAngle(blockPos);
-                if (ga != null) {
+                if (goodAimPoint(blockPos) != null) {
                     candidateTargets.add(blockPos.toImmutable());
                 }
             }
@@ -201,7 +211,7 @@ public class BedDestroyer extends Module {
             // Picking the best candidate target as a new target (no candidates = no target change)
             double bestSqDist = Double.MAX_VALUE;
             for (var c : candidateTargets) {
-                var curSqDist = cameraPosition().squaredDistanceTo(Vec3d.ofCenter(c));
+                    var curSqDist = cameraPosition().squaredDistanceTo(Vec3d.ofCenter(c));
                 if (curSqDist < bestSqDist) {
                     bestSqDist = curSqDist;
                     currentTarget = c.toImmutable();
@@ -211,18 +221,30 @@ public class BedDestroyer extends Module {
 
             // Processing the target (finally)
             if (currentTarget != null) {
-                var ga = goodAngle(currentTarget);
+                Pair<Pair<Vec3d, Direction>, Double> stickyAim = null;
+                if (targetPointSticky.get()) {
+                    stickyAim = checkAimPoint(currentTarget, currentTargetAimDelta);
+                }
+                var aimResult = stickyAim != null ? stickyAim.getA() : goodAimPoint(currentTarget);
+                // goodAimPoint may be used for the second time. Optimize?
+                if (aimResult == null) return; // Should never happen
+
                 isBreakingTarget = true;
+                currentTargetAimDelta = aimResult.getA();
                 if (blinkIntegration.get() && Modules.get().get(Blink.class).isActive()) isBreakingTarget = false;
                 if (isBreakingTarget) {
-                    rotatingLogic(ga.getA(), ga.getB());
-                    breakingLogic(currentTarget, ga.getC());
+                    var aim = currentTargetAimDelta.add(Vec3d.of(currentTarget)).subtract(cameraPosition()).normalize();
+                    rotatingLogic(getYaw(aim), getPitch(aim));
+
+                    breakingLogic(currentTarget, aimResult.getB());
                 }
             }
         });
     }
 
     private void rotatingLogic(float yaw, float pitch) {
+        if (mc.player == null) return;
+
         if (rotationMode.get() == RotationMode.LOCKED) {
             if (savedYawPitch == null) {
                 savedYawPitch = new Pair<>(mc.player.getYaw(), mc.player.getPitch());
@@ -254,13 +276,15 @@ public class BedDestroyer extends Module {
     }
 
     private void highlightBlock(Render3DEvent event, BlockPos bp, Color color, boolean allowPartial) {
+        if (mc.world == null) return;
+
         BlockState state = mc.world.getBlockState(bp);
         VoxelShape shape = state.getOutlineShape(mc.world, bp);
         if (shape.isEmpty()) return;
         Box box = shape.getBoundingBox();
 
         byte excludeDir = 0;
-        if (allowPartial && state.getBlock() instanceof BedBlock bb) {
+        if (allowPartial && state.getBlock() instanceof BedBlock) {
             var other = BedBlock.getOppositePartDirection(state);
             if (possibleTargets.contains(bp.offset(other))) {
                 excludeDir = Dir.get(other);
@@ -274,17 +298,19 @@ public class BedDestroyer extends Module {
     }
 
     private boolean isAllowedTarget(BlockPos pos) {
+        if (mc.world == null) return false;
         return isAllowedTarget(mc.world.getBlockState(pos));
     }
 
     private boolean isAllowedTarget(BlockState targetBlockState) {
-        if (targetBlockState.getBlock() instanceof BedBlock) return true;
-        return false;
+        return targetBlockState.getBlock() instanceof BedBlock;
     }
 
     private void breakingLogic(BlockPos blockPos, Direction direction) {
         // Adopted from meteordevelopment.meteorclient.utils.world.BlockUtils
-        // With this version can set a direction, too.
+        // This version can set a correct direction, too.
+
+        if (mc.interactionManager == null || mc.player == null) return;
 
         BlockPos pos = blockPos instanceof BlockPos.Mutable ? new BlockPos(blockPos) : blockPos;
 
@@ -297,61 +323,67 @@ public class BedDestroyer extends Module {
         if (swingClientside.get()) {
             mc.player.swingHand(Hand.MAIN_HAND);
         } else {
-            mc.getNetworkHandler().sendPacket(new HandSwingC2SPacket(Hand.MAIN_HAND));
+            mc.player.networkHandler.sendPacket(new HandSwingC2SPacket(Hand.MAIN_HAND));
         }
     }
 
     // Positions to check to know if we can reach the bed and to calculate the correct angle for breaking it
     // These positions should cover almost all cases where the bed is exposed
     // See net.minecraft.block.BedBlock.getOutlineShape for the bed shape
-    // Range: from 0.0 to 16.0, last element is priority
-    public double[][] deltaPositionsToCheck = {
-            {8, 8.9, 8, 10}, // Upper center
-            {0, 8, 0, 3}, {0, 8, 8, 3}, {8, 8, 8, 3}, {8, 8, 0, 3}, // Upper side centers
+    public final List<Pair<Vec3d, Integer>> aimPoints = initAimPoints();
+    private List<Pair<Vec3d, Integer>> initAimPoints() {
+        // Range: from 0.0 to 16.0, last element is priority
+        double[][] temp = {
+            {8, 9, 8, 10}, // Upper center
+            {0, 8, 0, 3}, {0, 8, 16, 3}, {16, 8, 16, 3}, {16, 8, 0, 3}, // Upper side centers
             {0.1, 8.9, 0.1, 1}, {15.9, 8.9, 0.1, 1}, {15.9, 8.9, 15.9, 1}, {0.1, 8.9, 15.9, 1}, // Upper corners
-    };
+        };
+        List<Pair<Vec3d, Integer>> ans = new ArrayList<>();
+        for (var a : temp) ans.add(new Pair<>(
+                new Vec3d(a[0] / 16.0, a[1] / 16.0, a[2] / 16.0), (int) Math.round(a[3]))
+        );
+        return ans;
+    }
 
-    // Calculates an angle such that the block can be hit.
-    // Take an angle with the highest priority (if multiple, the one allowing the shortest distance among them)
-    // Returns: yaw, pitch, block face that will be hit
-    // Is null if there is no such angle or if "target" is not an allowed target
-    public Triplet<Float, Float, Direction> goodAngle(BlockPos pos) {
-        if (pos == null) return null;
-        if (!isAllowedTarget(pos)) return null;
-
-        Triplet<Float, Float, Direction> ans = null;
+    // Calculates a good (relative) aim point such that the block can be hit.
+    // Takes a point with the highest priority (if multiple, the one allowing the shortest distance among them)
+    // Returns: relative aim point, block face that will be hit
+    @Nullable
+    public Pair<Vec3d, Direction> goodAimPoint(BlockPos pos) {
+        Pair<Vec3d, Direction> ans = null;
         double bestScore = Double.MIN_VALUE;
-        for (var dp : deltaPositionsToCheck) {
-            Vec3d aimAt = new Vec3d(
-                    pos.getX() + dp[0] / 16.0,
-                    pos.getY() + dp[1] / 16.0,
-                    pos.getZ() + dp[2] / 16.0
-                    );
-
-            var aimVector = aimAt.subtract(cameraPosition()).normalize();
-            BlockHitResult hit = collisionForVector(aimVector);
-
-            if (!hit.getBlockPos().equals(pos)) {
-                // We tried an angle, but the target is obstructed. UNACCEPTABLE!
-                continue;
-            }
-
-            var hitScore = 0.0;
-            hitScore += dp[3] * 10000;
-            hitScore -= cameraPosition().squaredDistanceTo(hit.getPos());
-
-            if (hitScore > bestScore) {
-                bestScore = hitScore;
-
-                float yaw = (float) (Math.atan2(- aimVector.x, aimVector.z) * 180.0 / Math.PI);
-                float pitch = (float) (Math.asin(- aimVector.y) * 180.0 / Math.PI);
-                ans = new Triplet<>(yaw, pitch, hit.getSide());
+        for (var ap : aimPoints) {
+            var result = checkAimPoint(pos, ap.getA());
+            if (result != null) {
+                var score = ap.getB() * 10000 - result.getB();
+                if (score > bestScore) {
+                    bestScore = score;
+                    ans = result.getA();
+                }
             }
         }
         return ans;
     }
 
+    // Block position, aimPoint -> Direction, score
+    @Nullable
+    public Pair<Pair<Vec3d, Direction>, Double> checkAimPoint(BlockPos pos, Vec3d ap) {
+        if (pos == null || ap == null) return null;
+        if (!isAllowedTarget(pos)) return null; // This will be called a lot...
+
+        Vec3d aimAt = ap.add(Vec3d.of(pos));
+        var aimVector = aimAt.subtract(cameraPosition()).normalize();
+        BlockHitResult hit = collisionForVector(aimVector);
+        if (hit.getType() == HitResult.Type.MISS || !hit.getBlockPos().equals(pos)) {
+            return null;
+        }
+        var sqDist = cameraPosition().squaredDistanceTo(hit.getPos());
+        return new Pair<>(new Pair<>(ap, hit.getSide()), sqDist);
+    }
+
     public BlockHitResult collisionForVector(Vec3d direction) {
+        if (mc.player == null || mc.world == null) return BlockHitResult.createMissed(null, null, null);
+
         Vec3d start = cameraPosition();
         Vec3d delta = direction.normalize().multiply(getReach());
         Vec3d end = start.add(delta);
@@ -362,11 +394,22 @@ public class BedDestroyer extends Module {
     }
 
     public Vec3d cameraPosition() {
-        // Some magic, no idea why tick delta is needed here
-        return mc.player.getCameraPosVec(1f / 20f);
+        if (mc.player == null) return Vec3d.ZERO;
+        var tickDelta = 1f / 20f; // Where the camera will end up post-tick?
+        return mc.player.getCameraPosVec(tickDelta);
     }
 
     public double getReach() {
-        return vanillaReach.get() ? mc.interactionManager.getReachDistance() : range.get();
+        if (mc.interactionManager == null) return 0.0;
+        return vanillaReach.get() ? mc.interactionManager.getReachDistance() : reach.get();
+    }
+
+    // Vec3d.fromPolar(pitch, yaw).normalize() ??
+    public static float getYaw(Vec3d vector) {
+        return (float) (Math.atan2(- vector.x, vector.z) * 180.0 / Math.PI);
+    }
+
+    public static float getPitch(Vec3d vector) {
+        return (float) (Math.asin(- vector.y) * 180.0 / Math.PI);
     }
 }
