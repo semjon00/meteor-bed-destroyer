@@ -6,8 +6,9 @@
   "mixins": [
   ],
   "client": [
+    "ClientPlayerEntityMixin",
     "ClientPlayerInteractionManagerMixin",
-    "ClientPlayerEntityMixin"
+    "PlayerUtilsMixin"
   ],
   "injectors": {
     "defaultRequire": 1

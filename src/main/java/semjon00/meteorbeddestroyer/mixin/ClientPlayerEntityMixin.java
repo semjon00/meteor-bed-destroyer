@@ -19,7 +19,7 @@ public class ClientPlayerEntityMixin {
     private void setSprinting(CallbackInfo info) {
         if (Modules.get().get(BedDestroyer.class).isActive() &&
                 Modules.get().get(BedDestroyer.class).isBreakingTarget &&
-                Modules.get().get(BedDestroyer.class).rotationMode.get() == BedDestroyer.RotationMode.FREELOOK
+                Modules.get().get(BedDestroyer.class).rotationMode.get() == BedDestroyer.RotationMode.Freelook
         ) {
             // Wait until the addon disables the sprinting
             if (mc.player == null) return;

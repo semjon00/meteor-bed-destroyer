@@ -63,15 +63,15 @@ public class BedDestroyer extends Module {
     );
 
     public enum RotationMode {
-        NONE,
-        FREELOOK,
-        LOCKED
+        None,
+        Freelook,
+        Locked
     }
 
     public final Setting<RotationMode> rotationMode = sgGeneral.add(new EnumSetting.Builder<RotationMode>()
             .name("rotation-mode")
             .description("How should the module fake rotation?")
-            .defaultValue(RotationMode.FREELOOK)
+            .defaultValue(RotationMode.Freelook)
             .build()
     );
 
@@ -79,7 +79,7 @@ public class BedDestroyer extends Module {
             .name("restrict-sprinting")
             .description("Sprinting may not be possible in all directions. Restrict it?")
             .defaultValue(true)
-            .visible(() -> rotationMode.get() == RotationMode.FREELOOK)
+            .visible(() -> rotationMode.get() == RotationMode.Freelook)
             .build()
     );
 
@@ -87,7 +87,7 @@ public class BedDestroyer extends Module {
             .name("restore-rotation")
             .description("Should the previous rotation be restored after the block is broken?")
             .defaultValue(false)
-            .visible(() -> rotationMode.get() == RotationMode.LOCKED)
+            .visible(() -> rotationMode.get() == RotationMode.Locked)
             .build()
     );
 
@@ -245,7 +245,7 @@ public class BedDestroyer extends Module {
     private void rotatingLogic(float yaw, float pitch) {
         if (mc.player == null) return;
 
-        if (rotationMode.get() == RotationMode.LOCKED) {
+        if (rotationMode.get() == RotationMode.Locked) {
             if (savedYawPitch == null) {
                 savedYawPitch = new Pair<>(mc.player.getYaw(), mc.player.getPitch());
             }
@@ -254,7 +254,7 @@ public class BedDestroyer extends Module {
             mc.player.setYaw(yaw);
             mc.player.setPitch(pitch);
         }
-        if (rotationMode.get() == RotationMode.FREELOOK) {
+        if (rotationMode.get() == RotationMode.Freelook) {
             if (restrictSprinting.get()) {
                 if (mc.player.isSprinting()) {
                     mc.player.setSprinting(false);
