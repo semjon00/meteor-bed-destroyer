@@ -28,7 +28,7 @@ public class ClientPlayerInteractionManagerMixin {
 	@Inject(method = "cancelBlockBreaking", at = @At("HEAD"), cancellable = true)
 	private void onCancelBlockBreaking(CallbackInfo info) {
 		if (Modules.get().get(BedDestroyer.class).isActive()) {
-			if (Modules.get().get(BedDestroyer.class).currentTarget != null) {
+			if (Modules.get().get(BedDestroyer.class).isBreakingTarget) {
 				info.cancel();
 			}
 		}

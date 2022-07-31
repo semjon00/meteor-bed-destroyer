@@ -335,7 +335,7 @@ public class BedDestroyer extends Module {
         // Range: from 0.0 to 16.0, last element is priority
         double[][] temp = {
             {8, 9, 8, 10}, // Upper center
-            {0, 8, 0, 3}, {0, 8, 16, 3}, {16, 8, 16, 3}, {16, 8, 0, 3}, // Upper side centers
+            {8, 8, 0, 3}, {0, 8, 8, 3}, {8, 8, 16, 3}, {16, 8, 8, 3}, // Upper side centers
             {0.1, 8.9, 0.1, 1}, {15.9, 8.9, 0.1, 1}, {15.9, 8.9, 15.9, 1}, {0.1, 8.9, 15.9, 1}, // Upper corners
         };
         List<Pair<Vec3d, Integer>> ans = new ArrayList<>();
