@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import semjon00.meteorbeddestroyer.modules.*;
 
 import java.lang.invoke.MethodHandles;
+import java.time.Instant;
 
 public class MeteorBedDestroyerAddon extends MeteorAddon {
 	public static final Logger LOGGER = LoggerFactory.getLogger("Meteor Bed Destroyer");
@@ -31,5 +32,14 @@ public class MeteorBedDestroyerAddon extends MeteorAddon {
 	@Override
 	public void onRegisterCategories() {
 		Modules.registerCategory(CATEGORY);
+	}
+
+	public static boolean shouldDebug = false;
+
+	public static void debugLog(String msg, Object... objs) {
+		if (!shouldDebug) return;
+		// We do not use debug level, because it is such a pain to set up
+		var timedMsg = Instant.now().toString().split("T")[1] + ": " + msg;
+		LOGGER.info(timedMsg, objs);
 	}
 }

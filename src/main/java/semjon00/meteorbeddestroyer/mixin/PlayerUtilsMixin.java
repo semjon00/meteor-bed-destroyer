@@ -5,9 +5,7 @@ import meteordevelopment.meteorclient.utils.misc.text.ColoredText;
 import meteordevelopment.meteorclient.utils.player.PlayerUtils;
 import meteordevelopment.meteorclient.utils.render.color.Color;
 import net.minecraft.text.Text;
-import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
 
@@ -18,11 +16,7 @@ import static meteordevelopment.meteorclient.utils.misc.text.TextUtils.toColored
 
 @Mixin(PlayerUtils.class)
 public class PlayerUtilsMixin {
-
-    @Final
-    private static final Color color = new Color();
-
-    // Lets try to predict the players team more aggressively. Helps in some cases.
+    // Let's try to predict the player's team more aggressively. Helps in some cases.
     @Redirect(method = "getPlayerColor", at = @At(value = "INVOKE", target = "Lmeteordevelopment/meteorclient/utils/misc/text/TextUtils;getMostPopularColor(Lnet/minecraft/text/Text;)Lmeteordevelopment/meteorclient/utils/render/color/Color;"))
     private static Color getPlayearColor(Text text) {
         var fallback = getMostPopularColor(text);

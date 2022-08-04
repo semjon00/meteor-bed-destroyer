@@ -8,6 +8,8 @@
   "client": [
     "ClientPlayerEntityMixin",
     "ClientPlayerInteractionManagerMixin",
+    "ClientPlayNetworkHandlerMixin",
+    "MouseMixin",
     "PlayerUtilsMixin"
   ],
   "injectors": {
