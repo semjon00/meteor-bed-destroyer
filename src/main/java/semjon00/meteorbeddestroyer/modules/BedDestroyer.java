@@ -2,10 +2,9 @@ package semjon00.meteorbeddestroyer.modules;
 
 // TODO: add toggle for situations where trough blocks is desirable
 // TODO: add toggle for situations where trough entities is undesirable
-// TODO: verify that the rotation does not lag behind the position (nor vice versa)
 // TODO: make an option to restrict punching while breaking the target
-// TODO: fix the Locked mode jitter
-
+// TODO: fix radical arm movement when going trough -180 180 yaw border
+// TODO: fix sneaking rotation de-sync
 
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
@@ -39,7 +38,6 @@ import semjon00.meteorbeddestroyer.MeteorBedDestroyerAddon;
 import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.List;
-import static semjon00.meteorbeddestroyer.MeteorBedDestroyerAddon.debugLog;
 
 public class BedDestroyer extends Module {
     public final SettingGroup sgGeneral = settings.createGroup("General");
@@ -47,14 +45,14 @@ public class BedDestroyer extends Module {
 
     public final Setting<Boolean> vanillaReach = sgGeneral.add(new BoolSetting.Builder()
             .name("vanilla-reach")
-            .description("Whether to use vanilla reach distance.")
+            .description("Uses reach distance that matches the vanilla reach distance.")
             .defaultValue(false)
             .build()
     );
 
     public final Setting<Double> reach = sgGeneral.add(new DoubleSetting.Builder()
             .name("reach")
-            .description("The break reach.")
+            .description("The reach of breaking.")
             .defaultValue(4.0)
             .min(1)
             .max(8)
@@ -72,14 +70,14 @@ public class BedDestroyer extends Module {
 
     public final Setting<RotationMode> rotationMode = sgGeneral.add(new EnumSetting.Builder<RotationMode>()
             .name("rotation-mode")
-            .description("How should the module fake rotation?")
+            .description("Mode of applying rotation.")
             .defaultValue(RotationMode.Freelook)
             .build()
     );
 
     public final Setting<Boolean> restrictSprinting = sgGeneral.add(new BoolSetting.Builder()
             .name("restrict-sprinting")
-            .description("Sprinting may not be possible in all directions. Restrict it?")
+            .description("Restricts sprinting.")
             .defaultValue(true)
             .visible(() -> rotationMode.get() == RotationMode.Freelook)
             .build()
@@ -87,7 +85,7 @@ public class BedDestroyer extends Module {
 
     public final Setting<Boolean> restoreRotation = sgGeneral.add(new BoolSetting.Builder()
             .name("restore-rotation")
-            .description("Should the previous rotation be restored after the block is broken?")
+            .description("Restores rotation after target disappears.")
             .defaultValue(false)
             .visible(() -> rotationMode.get() == RotationMode.Locked)
             .build()
@@ -95,57 +93,43 @@ public class BedDestroyer extends Module {
 
     public final Setting<Boolean> disableBreaking = sgGeneral.add(new BoolSetting.Builder()
             .name("disable-breaking")
-            .description("Lame!")
+            .description("Disables the destroying of a bed.")
             .defaultValue(false)
             .visible(() -> rotationMode.get() == RotationMode.Locked)
             .build()
     );
 
-//    public final Setting<Boolean> troughBlocks = sgGeneral.add(new BoolSetting.Builder()
-//            .name("trough-blocks")
-//            .description("Should we break trough blocks?")
-//            .defaultValue(false)
-//            .build()
-//    );
-//
-//    public final Setting<Boolean> troughEntities = sgGeneral.add(new BoolSetting.Builder()
-//            .name("trough-entities")
-//            .description("Should we break trough entities?")
-//            .defaultValue(true)
-//            .build()
-//    );
-
     public final Setting<Boolean> targetPointSticky = sgGeneral.add(new BoolSetting.Builder()
             .name("target-point-sticky")
-            .description("Should aim for the same point as long as possible?")
+            .description("Aims for the same point on a target as long as possible.")
             .defaultValue(false)
             .build()
     );
 
     public final Setting<Boolean> swingClientside = sgGeneral.add(new BoolSetting.Builder()
             .name("swing-clientside")
-            .description("Should the hand move client-side?")
+            .description("Visibly swings hand.")
             .defaultValue(false)
             .build()
     );
 
     public final Setting<Boolean> blinkIntegration = sgGeneral.add(new BoolSetting.Builder()
             .name("blink-integration")
-            .description("Should prevent the breaking while in Blink state?")
+            .description("Prevents breaking as long as Blink is activated.")
             .defaultValue(true)
             .build()
     );
 
     public final Setting<SettingColor> activeTargetColor = sgRender.add(new ColorSetting.Builder()
             .name("active-target-color")
-            .description("Color to render the block that is being broken.")
+            .description("Color used to render the block that is being broken.")
             .defaultValue(new SettingColor(255,31,31, 127))
             .build()
     );
 
     public final Setting<SettingColor> suspendedTargetColor = sgRender.add(new ColorSetting.Builder()
             .name("suspended-target-color")
-            .description("Color to render the block that the module may break, but does not.")
+            .description("Color used to render the target that is not being broken.")
             .defaultValue(new SettingColor(245,133,31, 79))
             .visible(() -> blinkIntegration.get() || rotationMode.get() == RotationMode.Locked && disableBreaking.get())
             .build()
@@ -166,8 +150,8 @@ public class BedDestroyer extends Module {
 
     public boolean isBreakingTarget = false;
     public BlockPos currentTarget = null;
-    public boolean interactionManagerNotObstruct = false;
     public Vec3d currentTargetDeltaAim = null;
+    public boolean interactionManagerNotObstruct = false;
     public final List<BlockPos> possibleTargets = new ArrayList<>();
     public Pair<Float, Float> savedYawPitch = null;
 
@@ -181,30 +165,40 @@ public class BedDestroyer extends Module {
     }
 
     @EventHandler
-    public void onTickPre(TickEvent.Pre event) {
+    public void updateWithTick(TickEvent.Pre event) {
+        updateDeltaAim();
+        updateTarget();
+    }
+
+    public void updateNoTick() {
+        updateDeltaAim();
+        advanceTarget(false);
+    }
+
+    public void updateDeltaAim() {
         if (mc.interactionManager == null || mc.player == null) return;
 
-        if (currentTarget != null && goodAimPoint(currentTarget) == null) {
-            // The target no longer reachable. Either it broke or is too far away.
-            isBreakingTarget = false;
-            currentTarget = null;
-            currentTargetDeltaAim = null;
-            mc.interactionManager.cancelBlockBreaking();
-            // Restoring yaw and pitch if necessary
-            if (savedYawPitch != null) {
-                // By entering Blink state you would assume that the position will be forgotten
-                if (restoreRotation.get() && !Modules.get().get(Blink.class).isActive()) {
-                    mc.player.setYaw(savedYawPitch.getA());
-                    mc.player.setPitch(savedYawPitch.getB());
-                }
-                savedYawPitch = null;
+        if (currentTarget != null && (checkAimPoint(currentTarget, currentTargetDeltaAim) == null || !targetPointSticky.get())) {
+            var deltaAim = goodAimPoint(currentTarget);
+            if (deltaAim == null) {
+                // Releasing target
+                isBreakingTarget = false;
+                currentTarget = null;
+                currentTargetDeltaAim = null;
+                mc.interactionManager.cancelBlockBreaking();
+            } else {
+                // New deltaAim point
+                currentTargetDeltaAim = deltaAim.getA();
             }
         }
+    }
 
+    public void updateTarget() {
         // Searching possible targets, candidate targets
+        // Please note that the BlockIterator is deferred
         final List<BlockPos> candidateTargets = new ArrayList<>();
         possibleTargets.clear();
-        BlockIterator.register((int) Math.ceil(reach.get()+2), (int) Math.ceil(reach.get()+2), (blockPos, blockState) -> {
+        BlockIterator.register((int) Math.ceil(reach.get() + 2), (int) Math.ceil(reach.get() + 2), (blockPos, blockState) -> {
             if (!BlockUtils.canBreak(blockPos, blockState)) return;
             if (!isAllowedTarget(blockState)) return;
             possibleTargets.add(blockPos.toImmutable());
@@ -222,7 +216,7 @@ public class BedDestroyer extends Module {
             // Picking the best candidate target as a new target (no candidates = no target change)
             double bestSqDist = Double.MAX_VALUE;
             for (var c : candidateTargets) {
-                    var curSqDist = cameraPosition().squaredDistanceTo(Vec3d.ofCenter(c));
+                var curSqDist = cameraPosition().squaredDistanceTo(Vec3d.ofCenter(c));
                 if (curSqDist < bestSqDist) {
                     bestSqDist = curSqDist;
                     currentTarget = c.toImmutable();
@@ -230,30 +224,46 @@ public class BedDestroyer extends Module {
             }
             candidateTargets.clear();
 
-            // Processing the target (finally)
-            if (currentTarget != null) {
-                Pair<Pair<Vec3d, Direction>, Double> stickyDeltaAim = null;
-                if (targetPointSticky.get()) {
-                    stickyDeltaAim = checkAimPoint(currentTarget, currentTargetDeltaAim);
+            // Putting deltaAim if necessary
+            if (currentTarget != null && currentTargetDeltaAim == null) {
+                var deltaAim = goodAimPoint(currentTarget);
+                if (deltaAim != null) {
+                    currentTargetDeltaAim = deltaAim.getA();
                 }
-                var deltaAim = stickyDeltaAim != null ? stickyDeltaAim.getA() : goodAimPoint(currentTarget);
-                // goodAimPoint may be used for the second time. Optimize?
-                if (deltaAim == null) return; // Should never happen
-
-                isBreakingTarget = true;
-                currentTargetDeltaAim = deltaAim.getA();
-                if (blinkIntegration.get() && Modules.get().get(Blink.class).isActive()) isBreakingTarget = false;
-                if (rotationMode.get() == RotationMode.Locked && disableBreaking.get()) isBreakingTarget = false;
-                if (isBreakingTarget) {
-                    var absAim = currentTargetDeltaAim.add(Vec3d.of(currentTarget));
-                    var aimVector = absAim.subtract(cameraPosition()).normalize();
-                    debugLog("In onTickPre");
-                    rotatingLogic(getYaw(aimVector), getPitch(aimVector));
-
-                    breakingLogic(currentTarget, deltaAim.getB());
-                }
+                if (currentTargetDeltaAim == null) currentTarget = null; // Should never happen
             }
+
+            advanceTarget(true);
         });
+    }
+
+    public void advanceTarget(boolean isWithTick) {
+        if (mc.player == null) return;
+
+        if (currentTarget != null && currentTargetDeltaAim != null) {
+            var absAim = currentTargetDeltaAim.add(Vec3d.of(currentTarget));
+            var aimVector = absAim.subtract(cameraPosition()).normalize();
+            rotatingLogic(getYaw(aimVector), getPitch(aimVector));
+
+            isBreakingTarget = true;
+            if (blinkIntegration.get() && Modules.get().get(Blink.class).isActive()) isBreakingTarget = false;
+            if (rotationMode.get() == RotationMode.Locked && disableBreaking.get()) isBreakingTarget = false;
+            if (isBreakingTarget && isWithTick) {
+                var deltaAim = checkAimPoint(currentTarget, currentTargetDeltaAim);
+                if (deltaAim != null) breakingLogic(currentTarget, deltaAim.getA().getB());
+            }
+        } else {
+            isBreakingTarget = false;
+            // Restoring yaw and pitch if necessary
+            if (savedYawPitch != null) {
+                // By entering Blink state you would assume that the position will be forgotten
+                if (restoreRotation.get() && !Modules.get().get(Blink.class).isActive()) {
+                    mc.player.setYaw(savedYawPitch.getA());
+                    mc.player.setPitch(savedYawPitch.getB());
+                }
+                savedYawPitch = null;
+            }
+        }
     }
 
     public void rotatingLogic(float yaw, float pitch) {
@@ -276,8 +286,6 @@ public class BedDestroyer extends Module {
             }
             Rotations.rotate(yaw, pitch, 10, true, () -> {});
         }
-        debugLog("Camera position is {}", cameraPosition());
-        debugLog("Asked for yaw {} and pitch {}", yaw, pitch);
     }
 
     @EventHandler
@@ -414,11 +422,9 @@ public class BedDestroyer extends Module {
         return mc.world.raycast(context);
     }
 
-    public float tickDelta = 1f / 20f; // Where the camera will end up post-tick?
     public Vec3d cameraPosition() {
         if (mc.player == null) return Vec3d.ZERO;
-        var ret = mc.player.getCameraPosVec(tickDelta);
-        return ret;
+        return mc.player.getCameraPosVec(mc.getTickDelta());
     }
 
     public double getReach() {

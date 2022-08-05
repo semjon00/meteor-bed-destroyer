@@ -3,12 +3,10 @@
   "minVersion": "0.8",
   "package": "semjon00.meteorbeddestroyer.mixin",
   "compatibilityLevel": "JAVA_17",
-  "mixins": [
-  ],
   "client": [
     "ClientPlayerEntityMixin",
     "ClientPlayerInteractionManagerMixin",
-    "ClientPlayNetworkHandlerMixin",
+    "EntityMixin",
     "MouseMixin",
     "PlayerUtilsMixin"
   ],
