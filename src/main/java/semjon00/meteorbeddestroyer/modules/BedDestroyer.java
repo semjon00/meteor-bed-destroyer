@@ -5,6 +5,8 @@ package semjon00.meteorbeddestroyer.modules;
 // TODO: make an option to restrict punching while breaking the target
 // TODO: fix radical arm movement when going trough -180 180 yaw border
 // TODO: fix sneaking rotation de-sync
+// TODO: home bed fix
+// TODO: anticheat triggers fix
 
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;

@@ -20,21 +20,4 @@ public class ClientPlayerInteractionManagerMixin {
 		if (!Modules.get().get(BedDestroyer.class).isActive()) return;
 		if (Modules.get().get(BedDestroyer.class).isBreakingTarget) info.cancel();
 	}
-
-	// Prevents the player from hitting blocks when we are already breaking the bed
-	@Inject(method = "attackBlock", at = @At("HEAD"), cancellable = true)
-	private void attackBlock(BlockPos pos, Direction direction, CallbackInfoReturnable<Boolean> cir) {
-		if (shouldRestrictBreaking()) cir.setReturnValue(false);
-	}
-	@Inject(method = "updateBlockBreakingProgress", at = @At("HEAD"), cancellable = true)
-	private void updateBlockBreakingProgress(BlockPos pos, Direction direction, CallbackInfoReturnable<Boolean> cir) {
-		if (shouldRestrictBreaking()) cir.setReturnValue(false);
-	}
-	private boolean shouldRestrictBreaking() {
-		var bd = Modules.get().get(BedDestroyer.class);
-		if (!bd.isActive()) return false;
-		if (!bd.isBreakingTarget) return false;
-		if (bd.interactionManagerNotObstruct) return false;
-		return true;
-	}
 }
