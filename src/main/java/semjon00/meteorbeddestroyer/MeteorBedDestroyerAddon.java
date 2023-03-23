@@ -34,6 +34,11 @@ public class MeteorBedDestroyerAddon extends MeteorAddon {
 		Modules.registerCategory(CATEGORY);
 	}
 
+	@Override
+	public String getPackage() {
+		return "semjon00.meteorbeddestroyer";
+	}
+
 	public static boolean shouldDebug = false;
 
 	public static void debugLog(String msg, Object... objs) {
