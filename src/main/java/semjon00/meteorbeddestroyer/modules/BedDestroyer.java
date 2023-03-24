@@ -45,6 +45,20 @@ public class BedDestroyer extends Module {
     public final SettingGroup sgGeneral = settings.createGroup("General");
     public final SettingGroup sgRender = settings.createGroup("Render");
 
+    public final Setting<RotationMode> rotationMode = sgGeneral.add(new EnumSetting.Builder<RotationMode>()
+            .name("rotation-mode")
+            .description("Mode of applying rotation.")
+            .defaultValue(RotationMode.Freelook)
+            .build()
+    );
+
+    public final Setting<Boolean> disableBreaking = sgGeneral.add(new BoolSetting.Builder()
+            .name("disable-breaking")
+            .description("Disables the destroying of a bed.")
+            .defaultValue(false)
+            .build()
+    );
+
     public final Setting<Boolean> vanillaReach = sgGeneral.add(new BoolSetting.Builder()
             .name("vanilla-reach")
             .description("Uses reach distance that matches the vanilla reach distance.")
@@ -70,13 +84,6 @@ public class BedDestroyer extends Module {
         Locked
     }
 
-    public final Setting<RotationMode> rotationMode = sgGeneral.add(new EnumSetting.Builder<RotationMode>()
-            .name("rotation-mode")
-            .description("Mode of applying rotation.")
-            .defaultValue(RotationMode.Freelook)
-            .build()
-    );
-
     public final Setting<Boolean> restrictSprinting = sgGeneral.add(new BoolSetting.Builder()
             .name("restrict-sprinting")
             .description("Restricts sprinting.")
@@ -93,18 +100,11 @@ public class BedDestroyer extends Module {
             .build()
     );
 
-    public final Setting<Boolean> disableBreaking = sgGeneral.add(new BoolSetting.Builder()
-            .name("disable-breaking")
-            .description("Disables the destroying of a bed.")
-            .defaultValue(false)
-            .visible(() -> rotationMode.get() == RotationMode.Locked)
-            .build()
-    );
-
     public final Setting<Boolean> targetPointSticky = sgGeneral.add(new BoolSetting.Builder()
             .name("target-point-sticky")
             .description("Aims for the same point on a target as long as possible.")
             .defaultValue(false)
+            .visible(() -> rotationMode.get() != RotationMode.None || !disableBreaking.get())
             .build()
     );
 
@@ -112,6 +112,7 @@ public class BedDestroyer extends Module {
             .name("swing-clientside")
             .description("Visibly swings hand.")
             .defaultValue(false)
+            .visible(() -> !disableBreaking.get())
             .build()
     );
 
@@ -119,6 +120,7 @@ public class BedDestroyer extends Module {
             .name("blink-integration")
             .description("Prevents breaking as long as Blink is activated.")
             .defaultValue(true)
+            .visible(() -> !disableBreaking.get())
             .build()
     );
 
@@ -126,6 +128,7 @@ public class BedDestroyer extends Module {
             .name("active-target-color")
             .description("Color used to render the block that is being broken.")
             .defaultValue(new SettingColor(255,31,31, 127))
+            .visible(() -> !disableBreaking.get())
             .build()
     );
 
@@ -133,7 +136,7 @@ public class BedDestroyer extends Module {
             .name("suspended-target-color")
             .description("Color used to render the target that is not being broken.")
             .defaultValue(new SettingColor(245,133,31, 79))
-            .visible(() -> blinkIntegration.get() || rotationMode.get() == RotationMode.Locked && disableBreaking.get())
+            .visible(() -> blinkIntegration.get() || disableBreaking.get())
             .build()
     );
 
@@ -141,6 +144,13 @@ public class BedDestroyer extends Module {
             .name("possible-target-color")
             .description("Color to render all nearby bed blocks.")
             .defaultValue(new SettingColor(234, 234, 31, 31))
+            .build()
+    );
+
+    public final Setting<Boolean> alternativeTeamsColoring = sgRender.add(new BoolSetting.Builder()
+            .name("alternative-teams-coloring")
+            .description("Use alternative way of assigning colors to players - may be useful for ESP.")
+            .defaultValue(false)
             .build()
     );
 
@@ -249,7 +259,7 @@ public class BedDestroyer extends Module {
 
             isBreakingTarget = true;
             if (blinkIntegration.get() && Modules.get().get(Blink.class).isActive()) isBreakingTarget = false;
-            if (rotationMode.get() == RotationMode.Locked && disableBreaking.get()) isBreakingTarget = false;
+            if (disableBreaking.get()) isBreakingTarget = false;
             if (isBreakingTarget && isWithTick) {
                 var deltaAim = checkAimPoint(currentTarget, currentTargetDeltaAim);
                 if (deltaAim != null) breakingLogic(currentTarget, deltaAim.getA().getB());

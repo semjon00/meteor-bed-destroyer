@@ -24,8 +24,6 @@ public class MouseMixin {
     // Also, updates free rotation if the mouse moved (just in case)
     @Inject(method = "updateMouse", at = @At("TAIL"))
     public void updateMouseTail(CallbackInfo ci) {
-        var bd = Modules.get().get(BedDestroyer.class);
-        if (!bd.isActive()) return;
-        bd.updateNoTick();
+        Modules.get().get(BedDestroyer.class).updateNoTick();
     }
 }
